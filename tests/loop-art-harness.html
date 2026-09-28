@@ -11,6 +11,11 @@ const failures = [];
 const samples = [];
 const size = 160;
 const framesPerLoop = 24;
+const motifKeys = Object.keys(LOOP_MOTIFS);
+if (motifKeys.length !== 50) failures.push(`expected 50 motifs, found ${motifKeys.length}`);
+const generatedMotifs = new Set(Array.from({ length: 2500 }, (_, index) =>
+    createEffectRecipe({ seed: 40000 + index }).motif));
+if (generatedMotifs.size !== 50) failures.push(`seeded generation reached only ${generatedMotifs.size} motifs`);
 
 const pixelsAt = (effect, time) => {
     const canvas = document.createElement('canvas');
@@ -26,7 +31,7 @@ const difference = (left, right) => {
     return total / left.length;
 };
 
-for (const [motifIndex, motif] of Object.keys(LOOP_MOTIFS).entries()) {
+for (const [motifIndex, motif] of motifKeys.entries()) {
     for (const seed of [1001, 2002, 3003]) {
         const recipe = { ...createEffectRecipe({ seed: seed + motifIndex * 100, element: 'storm' }), motif };
         const effect = new AbilityEffect(recipe);
@@ -50,6 +55,16 @@ for (const [motifIndex, motif] of Object.keys(LOOP_MOTIFS).entries()) {
     }
 }
 
+const fixedRecipe = createEffectRecipe({ seed: 919191, element: 'arcane' });
+const signatures = motifKeys.map((motif) => {
+    const effect = new AbilityEffect({ ...fixedRecipe, motif });
+    const pixels = pixelsAt(effect, effect.duration * 0.22);
+    let hash = 2166136261;
+    for (const value of pixels) hash = Math.imul(hash ^ value, 16777619);
+    return hash >>> 0;
+});
+if (new Set(signatures).size !== motifKeys.length) failures.push('two motifs rendered an identical frame with the same recipe');
+
 const recipe = { ...createEffectRecipe({ seed: 4242 }), motif: 'prism' };
 const { frames } = await renderEffectFrames({ recipe, size: 128, frameCount: 24 });
 if (frames.length !== 24 || frames.some((frame) => frame.width !== 128 || frame.height !== 128)) {
@@ -60,7 +75,9 @@ if (difference(frames[0].getContext('2d').getImageData(0, 0, 128, 128).data,
     failures.push('export repeats the first frame instead of sampling the cycle');
 }
 
-const result = { passed: failures.length === 0, failures, samples };
+const result = { passed: failures.length === 0, motifCount: motifKeys.length,
+    generatedMotifCount: generatedMotifs.size,
+    distinctFixedSeedFrames: new Set(signatures).size, failures, samples };
 document.body.dataset.status = result.passed ? 'passed' : 'failed';
 document.querySelector('#result').textContent = JSON.stringify(result, null, 2);
 </script>

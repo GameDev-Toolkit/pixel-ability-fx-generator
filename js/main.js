@@ -11,8 +11,8 @@ import {
     createEffectRecipe,
     randomSeed,
     renderEffectFrames
-} from './AbilityEffect.js?v=11';
-import { LOOP_MOTIFS } from './engine/LoopArt.js';
+} from './AbilityEffect.js?v=12';
+import { LOOP_MOTIFS, LOOP_MOTIF_GROUPS } from './engine/LoopArt.js?v=2';
 
 const GIF_WORKER_URL = new URL('./gif.worker.js', import.meta.url).href;
 const GIF_TRANSPARENT_COLOR = 0x010203;
@@ -69,18 +69,24 @@ const allFlows = [...new Set(Object.values(FORMATIONS)
     .flatMap((formation) => formation.flows))];
 
 const FORMATION_MOTIFS = {
-    radial: 'mandala', cone: 'waves', axes: 'sigil', spiral: 'spiral',
-    collapse: 'plasma', eruption: 'lightning', twin: 'orbit', spokes: 'sigil',
-    meteor: 'lightning', fissure: 'lightning', cascade: 'waves', orbitBreak: 'orbit',
-    crescent: 'waves', ricochet: 'lightning', beam: 'lightning', scatter: 'plasma',
-    orbit: 'orbit', polygon: 'sigil', broken: 'sigil', satellites: 'orbit',
-    braid: 'waves', diamondField: 'prism', shell: 'sigil', compass: 'sigil',
-    wall: 'waves', cage: 'prism', prism: 'prism', gates: 'prism',
-    swarm: 'plasma', hourglass: 'prism', cells: 'prism', arcArray: 'waves',
-    halo: 'mandala', fountain: 'waves', petals: 'mandala', rain: 'waves',
-    constellation: 'sigil', helix: 'spiral', tide: 'waves', mist: 'plasma',
-    pillars: 'prism', orbitLanes: 'orbit', wavefront: 'waves',
-    leafVortex: 'spiral', pulseGrid: 'sigil', comets: 'orbit'
+    burst: {
+        radial: 'starburst', cone: 'comet', axes: 'runicCross', spiral: 'spiral',
+        collapse: 'blackhole', eruption: 'fire', twin: 'infinity', spokes: 'sunwheel',
+        meteor: 'meteorRain', fissure: 'lightning', cascade: 'waterfall', orbitBreak: 'nova',
+        crescent: 'eclipse', ricochet: 'shuriken', beam: 'radar', scatter: 'glitch'
+    },
+    barrier: {
+        orbit: 'orbit', polygon: 'sigil', broken: 'thornRing', satellites: 'chain',
+        braid: 'dna', diamondField: 'crystalCage', shell: 'prism', compass: 'clockwork',
+        wall: 'lattice', cage: 'octahedron', prism: 'tetrahedron', gates: 'portal',
+        swarm: 'plasma', hourglass: 'hourglass', cells: 'checker', arcArray: 'hexagram'
+    },
+    aura: {
+        halo: 'mandala', fountain: 'crystalBloom', spiral: 'rose', petals: 'daisy',
+        rain: 'rain', constellation: 'pentagram', helix: 'helix', tide: 'tide',
+        mist: 'smoke', pillars: 'vine', orbitLanes: 'tunnel', wavefront: 'waves',
+        leafVortex: 'leafVortex', pulseGrid: 'lissajous', comets: 'bladeWheel', swarm: 'aurora'
+    }
 };
 
 let baseRecipe;
@@ -185,7 +191,14 @@ const populateStaticControls = () => {
         Object.entries(POWER_LEVELS).map(([key, item]) => [key, item.label]),
         'standard'
     );
-    setSelectOptions(controls.motif, Object.entries(LOOP_MOTIFS), 'mandala');
+    controls.motif.replaceChildren();
+    for (const group of LOOP_MOTIF_GROUPS) {
+        const options = document.createElement('optgroup');
+        options.label = group.label;
+        for (const [key, label] of Object.entries(group.motifs)) options.append(new Option(label, key));
+        controls.motif.append(options);
+    }
+    controls.motif.value = 'mandala';
     setSelectOptions(controls.geometry, allGeometries.map((key) => [key, prettyLabel(key)]), 'circle');
     setSelectOptions(controls.secondaryGeometry, allGeometries.map((key) => [key, prettyLabel(key)]), 'ellipse');
     setSelectOptions(controls.trace, TRACE_STYLES.map((key) => [key, prettyLabel(key)]), 'pixels');
@@ -245,6 +258,8 @@ const sanitizeFilename = (value) => value
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '') || 'ability-fx';
+
+const exportName = () => `${sanitizeFilename(baseRecipe.name)}-${baseRecipe.motif}`;
 
 const timestamp = () => new Date().toISOString().replace(/[:.]/g, '-');
 
@@ -389,7 +404,7 @@ const exportAtlas = async () => {
         image.alt = `${baseRecipe.name} sprite atlas`;
         atlasPreview.replaceChildren(image);
         atlasPreviewShell.hidden = false;
-        downloadUrl(dataUrl, `atlas-${sanitizeFilename(baseRecipe.name)}-${timestamp()}.png`);
+        downloadUrl(dataUrl, `atlas-${exportName()}-${timestamp()}.png`);
         setNotice('Sprite atlas exported', 'success');
     } catch (error) {
         console.error(error);
@@ -411,7 +426,7 @@ const exportFramesZip = async () => {
         zip.file('recipe.json', JSON.stringify(baseRecipe, null, 2));
         const blob = await zip.generateAsync({ type: 'blob' });
         const url = URL.createObjectURL(blob);
-        downloadUrl(url, `frames-${sanitizeFilename(baseRecipe.name)}-${timestamp()}.zip`);
+        downloadUrl(url, `frames-${exportName()}-${timestamp()}.zip`);
         window.setTimeout(() => URL.revokeObjectURL(url), 1000);
         setNotice('PNG sequence exported', 'success');
     } catch (error) {
@@ -443,7 +458,7 @@ const exportGif = async () => {
         });
         gif.on('finished', (blob) => {
             const url = URL.createObjectURL(blob);
-            downloadUrl(url, `loop-${sanitizeFilename(baseRecipe.name)}-${timestamp()}.gif`);
+            downloadUrl(url, `loop-${exportName()}-${timestamp()}.gif`);
             window.setTimeout(() => URL.revokeObjectURL(url), 1000);
             setNotice('Transparent GIF exported', 'success');
         });
@@ -467,7 +482,7 @@ const bindStructureControls = () => {
         rebuildRecipe({
             formation: key,
             formationLabel: formation.label,
-            motif: FORMATION_MOTIFS[key] || baseRecipe.motif,
+            motif: FORMATION_MOTIFS[baseRecipe.family][key] || baseRecipe.motif,
             geometry: formation.geometries[0],
             flow: formation.flows[0]
         });

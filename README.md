@@ -35,9 +35,9 @@ Everything is rendered locally with the Canvas 2D API. There is no account, back
 ## Highlights
 
 - **Deterministic generation** — the same seed and options recreate the same effect.
-- **Eight distinct visual motifs** — petal mandala, sigil, orbital rings, spiral vortex, prism, branch lightning, wave flower, and plasma halo.
+- **50 visual motifs** — eight original designs plus celestial, runic, crystalline, organic, elemental, spatial, and arcade patterns. Every motif has its own shape construction and periodic animation.
 - **Seamless animation** — motion is computed from a periodic phase, and exported frames sample `[0, 1)` without duplicating the first frame or adding an empty final frame.
-- **48 formation options** — 16 for each of the Impact, Barrier, and Aura families. Choosing one sets a matching motif and its detail geometry.
+- **48 formation options** — 16 for each of the Impact, Barrier, and Aura families. Each selects a distinct matching motif and its detail geometry; two additional motifs are available from the motif selector.
 - **10 elemental palettes** — Fire, Frost, Nature, Earth, Storm, Arcane, Shadow, Radiance, Blood, and Tide.
 - **Fine-grained direction** — combine formations, geometries, traces, particle shapes, flow, and temporal style.
 - **Live pixel preview** — restart or pause a complete cycle.
@@ -52,7 +52,7 @@ Everything is rendered locally with the Canvas 2D API. There is no account, back
 | Effect families | Impact / AoE, Ward / Barrier, Aura / Restore |
 | Power levels | Restrained, Standard, Mythic |
 | Element palettes | 10 curated five-color palettes |
-| Visual motifs | 8 distinct silhouettes with periodic motion |
+| Visual motifs | 50 designs in eight groups, with periodic motion |
 | Formations | 48 options that select a motif and detail geometry |
 | Trace styles | Pixels, dashes, shards, clusters, sparks, chains, streaks, paired marks, checker patterns, spray, and beads |
 | Particle control | 18 mixed particle kits plus direct shape selection |
@@ -212,7 +212,7 @@ The harness prints a JSON report and sets `"passed": true` when all checks succe
 
 Because these tests use Canvas APIs, they run in a browser rather than a Node.js test runner.
 
-Open `tests/loop-art-harness.html` for dedicated seam checks across all eight motifs and three seeds each. It checks exact periodicity, the visible transition from the last exported frame to the first, non-empty frames, transparent frame edges, and export dimensions. `tests/motif-gallery.html` shows all eight motifs together for visual review.
+Open `tests/loop-art-harness.html` for dedicated seam checks across all 50 motifs and three seeds each. It checks exact periodicity, the visible transition from the last exported frame to the first, non-empty frames, transparent frame edges, distinct rendered frames, and export dimensions. `tests/motif-gallery.html` shows all 50 motifs together for visual review.
 
 ## Deploying to GitHub Pages
 
