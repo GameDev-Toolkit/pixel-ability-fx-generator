@@ -11,7 +11,8 @@ import {
     createEffectRecipe,
     randomSeed,
     renderEffectFrames
-} from './AbilityEffect.js?v=10';
+} from './AbilityEffect.js?v=11';
+import { LOOP_MOTIFS } from './engine/LoopArt.js';
 
 const GIF_WORKER_URL = new URL('./gif.worker.js', import.meta.url).href;
 const GIF_TRANSPARENT_COLOR = 0x010203;
@@ -25,6 +26,7 @@ const controls = {
     family: document.querySelector('#familySelect'),
     element: document.querySelector('#elementSelect'),
     power: document.querySelector('#powerSelect'),
+    motif: document.querySelector('#motifSelect'),
     formation: document.querySelector('#formationSelect'),
     secondaryFormation: document.querySelector('#secondaryFormationSelect'),
     geometry: document.querySelector('#geometrySelect'),
@@ -65,6 +67,21 @@ const allGeometries = [...new Set(Object.values(FORMATIONS)
 const allFlows = [...new Set(Object.values(FORMATIONS)
     .flatMap((family) => Object.values(family))
     .flatMap((formation) => formation.flows))];
+
+const FORMATION_MOTIFS = {
+    radial: 'mandala', cone: 'waves', axes: 'sigil', spiral: 'spiral',
+    collapse: 'plasma', eruption: 'lightning', twin: 'orbit', spokes: 'sigil',
+    meteor: 'lightning', fissure: 'lightning', cascade: 'waves', orbitBreak: 'orbit',
+    crescent: 'waves', ricochet: 'lightning', beam: 'lightning', scatter: 'plasma',
+    orbit: 'orbit', polygon: 'sigil', broken: 'sigil', satellites: 'orbit',
+    braid: 'waves', diamondField: 'prism', shell: 'sigil', compass: 'sigil',
+    wall: 'waves', cage: 'prism', prism: 'prism', gates: 'prism',
+    swarm: 'plasma', hourglass: 'prism', cells: 'prism', arcArray: 'waves',
+    halo: 'mandala', fountain: 'waves', petals: 'mandala', rain: 'waves',
+    constellation: 'sigil', helix: 'spiral', tide: 'waves', mist: 'plasma',
+    pillars: 'prism', orbitLanes: 'orbit', wavefront: 'waves',
+    leafVortex: 'spiral', pulseGrid: 'sigil', comets: 'orbit'
+};
 
 let baseRecipe;
 let activeEffect;
@@ -168,6 +185,7 @@ const populateStaticControls = () => {
         Object.entries(POWER_LEVELS).map(([key, item]) => [key, item.label]),
         'standard'
     );
+    setSelectOptions(controls.motif, Object.entries(LOOP_MOTIFS), 'mandala');
     setSelectOptions(controls.geometry, allGeometries.map((key) => [key, prettyLabel(key)]), 'circle');
     setSelectOptions(controls.secondaryGeometry, allGeometries.map((key) => [key, prettyLabel(key)]), 'ellipse');
     setSelectOptions(controls.trace, TRACE_STYLES.map((key) => [key, prettyLabel(key)]), 'pixels');
@@ -201,6 +219,7 @@ const syncControls = () => {
     controls.family.value = baseRecipe.family;
     controls.element.value = baseRecipe.element;
     controls.power.value = baseRecipe.power;
+    controls.motif.value = baseRecipe.motif;
     syncFormationControls();
     controls.geometry.value = baseRecipe.geometry;
     controls.secondaryGeometry.value = baseRecipe.secondaryGeometry;
@@ -256,7 +275,7 @@ const updateRecipeReadout = () => {
     recipeElement.textContent = ELEMENTS[baseRecipe.element].label;
     durationStat.textContent = `${activeEffect.duration.toFixed(1)}s`;
     particleStat.textContent = activeEffect.particleCount;
-    layerStat.textContent = baseRecipe.layers;
+    layerStat.textContent = baseRecipe.motif === 'orbit' || baseRecipe.motif === 'waves' ? 3 : 2;
     symmetryStat.textContent = `${baseRecipe.symmetry}-way`;
     paletteSwatches.replaceChildren();
     baseRecipe.palette.forEach((color, index) => {
@@ -307,25 +326,20 @@ const generateFromControls = ({ freshSeed = false } = {}) => {
 
 const playbackTime = (now) => playing ? (now - startedAt) / 1000 : frozenTime;
 
-const getStage = (time) => {
-    const progress = time / activeEffect.duration;
-    if (time < 0.25) return 'Core flash';
-    if (progress < 0.28) return 'Primary form';
-    if (progress < 0.78) return baseRecipe.family === 'burst' ? 'Aftershock' : 'Sustain';
-    return 'Release';
-};
+const getStage = () => LOOP_MOTIFS[baseRecipe.motif] || 'Seamless loop';
 
 const animationLoop = (now) => {
     let time = playbackTime(now);
-    if (playing && time > activeEffect.duration + 0.58) {
-        startedAt = now;
-        time = 0;
+    if (playing && time >= activeEffect.duration) {
+        const elapsedCycles = Math.floor(time / activeEffect.duration);
+        startedAt += elapsedCycles * activeEffect.duration * 1000;
+        time %= activeEffect.duration;
     }
 
-    activeEffect.draw(context, Math.min(time, activeEffect.duration));
+    activeEffect.draw(context, time);
     const progress = Math.max(0, Math.min(1, time / activeEffect.duration));
     frameProgress.style.width = `${progress * 100}%`;
-    stageLabel.textContent = `${getStage(Math.min(time, activeEffect.duration))} · ${Math.min(time, activeEffect.duration).toFixed(1)}s`;
+    stageLabel.textContent = `${getStage()} · ${time.toFixed(1)}s`;
     requestAnimationFrame(animationLoop);
 };
 
@@ -356,7 +370,7 @@ const prepareGifFrame = (frame) => {
 
 const captureFrames = async () => {
     const settings = currentExportOptions();
-    setNotice('Rendering full cast…');
+    setNotice('Rendering seamless loop…');
     const result = await renderEffectFrames({
         recipe: baseRecipe,
         size: settings.size,
@@ -429,7 +443,7 @@ const exportGif = async () => {
         });
         gif.on('finished', (blob) => {
             const url = URL.createObjectURL(blob);
-            downloadUrl(url, `cast-${sanitizeFilename(baseRecipe.name)}-${timestamp()}.gif`);
+            downloadUrl(url, `loop-${sanitizeFilename(baseRecipe.name)}-${timestamp()}.gif`);
             window.setTimeout(() => URL.revokeObjectURL(url), 1000);
             setNotice('Transparent GIF exported', 'success');
         });
@@ -445,6 +459,7 @@ const bindStructureControls = () => {
     controls.family.addEventListener('change', () => generateFromControls());
     controls.element.addEventListener('change', () => generateFromControls());
     controls.power.addEventListener('change', () => generateFromControls());
+    controls.motif.addEventListener('change', () => rebuildRecipe({ motif: controls.motif.value }));
 
     controls.formation.addEventListener('change', () => {
         const key = controls.formation.value;
@@ -452,6 +467,7 @@ const bindStructureControls = () => {
         rebuildRecipe({
             formation: key,
             formationLabel: formation.label,
+            motif: FORMATION_MOTIFS[key] || baseRecipe.motif,
             geometry: formation.geometries[0],
             flow: formation.flows[0]
         });
@@ -498,7 +514,11 @@ const bindStructureControls = () => {
         }
         rebuildRecipe({ particleShapes: [shape] });
     });
-    controls.flow.addEventListener('change', () => rebuildRecipe({ flow: controls.flow.value }));
+    controls.flow.addEventListener('change', () => rebuildRecipe({
+        flow: controls.flow.value,
+        direction: ['inward', 'fall', 'counter-orbit', 'counter-flow'].some((part) => controls.flow.value.includes(part)) ? -1 : 1,
+        loopTurns: controls.flow.value.length % 3 === 0 ? 2 : 1
+    }));
     controls.temporal.addEventListener('change', () => rebuildRecipe({ temporalStyle: controls.temporal.value }));
 };
 
@@ -550,6 +570,7 @@ applyRecipe({
     particleKit: 'crystals',
     particleShapes: [...PARTICLE_KITS.crystals],
     flow: 'outward',
-    temporalStyle: 'instant'
+    temporalStyle: 'instant',
+    motif: 'mandala'
 });
 requestAnimationFrame(animationLoop);

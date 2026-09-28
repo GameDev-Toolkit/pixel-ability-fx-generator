@@ -28,17 +28,19 @@
 
 ## Overview
 
-Pixel FX Forge is a zero-build, client-side tool for creating animated pixel-art ability effects. Choose an effect family, element, formation, geometry, trace, particle kit, and timing style; iterate with a reproducible seed; then export the result for use in a game, prototype, or concept sheet.
+Pixel FX Forge is a zero-build, client-side tool for creating looping pixel-art ability effects. Choose an effect family, visual motif, element, formation, geometry, trace, particle kit, and timing style; iterate with a reproducible seed; then export the result for use in a game, prototype, or concept sheet.
 
 Everything is rendered locally with the Canvas 2D API. There is no account, backend, upload step, or generated asset stored by the project.
 
 ## Highlights
 
 - **Deterministic generation** — the same seed and options recreate the same effect.
-- **48 formations** — 16 formations for each of the Impact, Barrier, and Aura families.
+- **Eight distinct visual motifs** — petal mandala, sigil, orbital rings, spiral vortex, prism, branch lightning, wave flower, and plasma halo.
+- **Seamless animation** — motion is computed from a periodic phase, and exported frames sample `[0, 1)` without duplicating the first frame or adding an empty final frame.
+- **48 formation options** — 16 for each of the Impact, Barrier, and Aura families. Choosing one sets a matching motif and its detail geometry.
 - **10 elemental palettes** — Fire, Frost, Nature, Earth, Storm, Arcane, Shadow, Radiance, Blood, and Tide.
 - **Fine-grained direction** — combine formations, geometries, traces, particle shapes, flow, and temporal style.
-- **Live pixel preview** — replay or pause a complete cast while inspecting its current stage.
+- **Live pixel preview** — restart or pause a complete cycle.
 - **Resolution-aware rendering** — export square frames at 128, 160, 192, or 256 pixels without smoothing.
 - **Three export workflows** — download a sprite atlas, a zipped PNG sequence with recipe metadata, or a looping transparent GIF.
 - **No build tooling** — plain HTML, CSS, and JavaScript modules are enough to run and deploy the app.
@@ -50,7 +52,8 @@ Everything is rendered locally with the Canvas 2D API. There is no account, back
 | Effect families | Impact / AoE, Ward / Barrier, Aura / Restore |
 | Power levels | Restrained, Standard, Mythic |
 | Element palettes | 10 curated five-color palettes |
-| Formations | 48 total, including radial blooms, fissures, orbitals, polygon shells, helixes, tidal bands, and mote swarms |
+| Visual motifs | 8 distinct silhouettes with periodic motion |
+| Formations | 48 options that select a motif and detail geometry |
 | Trace styles | Pixels, dashes, shards, clusters, sparks, chains, streaks, paired marks, checker patterns, spray, and beads |
 | Particle control | 18 mixed particle kits plus direct shape selection |
 | Timing | Instant, staggered, double-pulse, slow-build, and echo |
@@ -83,7 +86,7 @@ No dependency installation or build command is required.
 
 1. **Choose a variation.** Enter a seed to reproduce an effect, or use the refresh control for a new seed.
 2. **Set the visual language.** Pick an archetype, power level, elemental palette, formations, geometries, trace styles, particles, flow, and timing.
-3. **Inspect the cast.** Use **Cast again** and **Pause** while checking duration, particle count, layers, symmetry, and the stage timeline.
+3. **Inspect the loop.** Use **Restart loop** and **Pause** while checking duration, particle count, layers, symmetry, and the timeline.
 4. **Select export settings.** Choose a frame size and frame count. GIF export also uses the selected frame rate.
 5. **Export the asset.** Download a sprite atlas, PNG sequence, or transparent GIF.
 
@@ -109,12 +112,12 @@ flowchart LR
     A[Seed + controls] --> B[Effect recipe]
     B --> C[Seeded particle system]
     C --> D[Canvas 2D renderer]
-    D --> E[Live cast preview]
+    D --> E[Live loop preview]
     D --> F[Frame renderer]
     F --> G[Atlas / ZIP / GIF]
 ```
 
-`createEffectRecipe()` turns a seed and the high-level controls into a complete recipe. `AbilityEffect` clones that recipe, builds a deterministic particle set, and draws any point in the animation timeline. The export path renders the same effect at evenly spaced timestamps, so the preview and downloaded frames use the same renderer.
+`createEffectRecipe()` turns a seed and the high-level controls into a complete recipe. `AbilityEffect` clones that recipe, builds deterministic pixel details, and draws any point in the animation timeline. The loop renderer uses periodic motion for all motifs, while the export path samples exactly one cycle at `frameIndex / frameCount`. The preview and downloaded frames use the same renderer. Older one-shot recipes can still use the original renderer by setting `looping: false`.
 
 ## Renderer API
 
@@ -138,7 +141,7 @@ const canvas = document.querySelector('canvas');
 const context = canvas.getContext('2d');
 const effect = new AbilityEffect(recipe);
 
-// Draw the effect 42% of the way through its cast.
+// Draw the effect 42% of the way through its loop.
 effect.draw(context, effect.duration * 0.42);
 
 // Render a complete 32-frame sequence at 256 × 256.
@@ -201,13 +204,15 @@ The harness prints a JSON report and sets `"passed": true` when all checks succe
 
 - deterministic output for identical recipes;
 - distinct render signatures for the three effect families;
-- transparent final frames and non-empty mid-cast frames;
+- matching first and period frames, and non-empty loop frames;
 - unique recipe DNA across 384 seeded variations;
 - a fixed center pivot and edge-safe rendering;
 - all 48 formation representatives across multiple animation phases;
 - requested frame counts and exported canvas dimensions.
 
 Because these tests use Canvas APIs, they run in a browser rather than a Node.js test runner.
+
+Open `tests/loop-art-harness.html` for dedicated seam checks across all eight motifs and three seeds each. It checks exact periodicity, the visible transition from the last exported frame to the first, non-empty frames, transparent frame edges, and export dimensions. `tests/motif-gallery.html` shows all eight motifs together for visual review.
 
 ## Deploying to GitHub Pages
 

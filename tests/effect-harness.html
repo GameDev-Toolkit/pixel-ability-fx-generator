@@ -67,7 +67,7 @@
 
             if (first.occupied < 20) failures.push(`${family}: mid-cast frame is nearly empty`);
             if (first.checksum !== second.checksum) failures.push(`${family}: render is not deterministic`);
-            if (finish.occupied !== 0) failures.push(`${family}: final frame is not transparent`);
+            if (finish.checksum !== start.checksum) failures.push(`${family}: cycle boundary does not match the first frame`);
             if (effect.particleCount < 20) failures.push(`${family}: insufficient generated particles`);
             signatures.push({
                 family,
@@ -121,7 +121,7 @@
                 }
                 edgeSafeFrames += 1;
             }
-            await new Promise(requestAnimationFrame);
+            await new Promise((resolve) => setTimeout(resolve, 0));
         }
 
         const formationCoverage = Object.fromEntries(families.map((family) => {

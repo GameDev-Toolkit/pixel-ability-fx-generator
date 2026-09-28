@@ -1,3 +1,5 @@
+import { LOOP_MOTIFS, createLoopArtModel, drawLoopArt } from './engine/LoopArt.js';
+
 const TAU = Math.PI * 2;
 const BASE_SIZE = 160;
 const FRAME_INSET = 1;
@@ -270,8 +272,8 @@ export const createEffectRecipe = ({
 
     const durationRanges = {
         burst: [2.2, 3.45],
-        barrier: [5.2, 8.1],
-        aura: [4.9, 7.8]
+        barrier: [3.0, 4.2],
+        aura: [2.8, 4.0]
     };
     const radiusRanges = {
         burst: [46, 67],
@@ -310,6 +312,8 @@ export const createEffectRecipe = ({
         particleShapes,
         glowStyle: choose(random, GLOW_STYLES),
         duration: between(random, ...durationRanges[familyKey]),
+        looping: true,
+        motif: choose(random, Object.keys(LOOP_MOTIFS)),
         density: powerData.density * between(random, 0.82, 1.18),
         scale: powerData.scale * between(random, 0.88, 1.1),
         brightness: powerData.brightness,
@@ -318,6 +322,7 @@ export const createEffectRecipe = ({
         symmetry: choose(random, symmetryValues),
         direction: random() > 0.5 ? 1 : -1,
         rotationSpeed: between(random, 0.22, 1.08),
+        loopTurns: random() > 0.76 ? 2 : 1,
         radius: between(random, ...radiusRanges[familyKey]),
         fragmentation: between(random, 0.08, 0.46),
         aspectX: between(random, 0.72, 1.18),
@@ -671,7 +676,7 @@ const drawFormation = (context, recipe, {
         const brokenGap = (recipe.formation === 'broken' || recipe.formation === 'arcArray') && Math.floor(index / 5) % 4 === 2;
         if (noise < fragmentation || arcGap || brokenGap) continue;
         const point = formationPoint(recipe, geometry, unit, radius, phase, layer);
-        const twinkle = 0.58 + 0.42 * Math.sin(index * 0.91 + phase * 5.3 + recipe.seed * 0.001);
+        const twinkle = 0.58 + 0.42 * Math.sin(index * 0.91 + phase * 5 + recipe.seed * 0.001);
         const colorIndex = (index + layer * 2) % Math.max(1, recipe.palette.length - 1);
         context.globalAlpha = alpha * clamp(twinkle, 0.16, 1);
         drawTraceBlock(context, style, point, index % 13 === 0 ? size + 1 : size, recipe.palette[colorIndex], index);
@@ -1127,6 +1132,11 @@ export class AbilityEffect {
     setRecipe(recipe) {
         this.recipe = structuredClone(recipe);
         this.duration = this.recipe.duration;
+        if (this.recipe.looping !== false) {
+            this.loopModel = createLoopArtModel(this.recipe);
+            this.particles = this.loopModel.motes;
+            return;
+        }
         const random = createRandom(hash(`${this.recipe.seed}:${this.recipe.family}:${this.recipe.element}`));
         if (this.recipe.family === 'burst') this.particles = buildBurstParticles(this.recipe, random);
         else if (this.recipe.family === 'barrier') this.particles = buildBarrierParticles(this.recipe, random);
@@ -1145,14 +1155,35 @@ export class AbilityEffect {
         const offsetY = (canvasHeight - BASE_SIZE * renderScale) / 2;
 
         context.clearRect(0, 0, canvasWidth, canvasHeight);
-        if (time >= this.duration) return;
+        if (this.recipe.looping === false && time >= this.duration) return;
         context.save();
         context.translate(offsetX, offsetY);
         context.scale(renderScale, renderScale);
         context.imageSmoothingEnabled = false;
 
         const safeTime = clamp(time, 0, this.duration);
-        if (this.recipe.family === 'burst') this.drawBurst(context, safeTime);
+        if (this.recipe.looping !== false) {
+            drawLoopArt(context, this.loopModel, time);
+            const phase = ((time / this.duration) % 1 + 1) % 1 * TAU;
+            drawFormation(context, this.recipe, {
+                geometry: this.recipe.geometry,
+                radius: 14,
+                segments: 24,
+                alpha: 0.24,
+                phase,
+                style: this.recipe.traceStyle,
+                fragmentation: this.recipe.fragmentation * 0.35
+            });
+            if (this.recipe.hybrid) drawFormation(context, this.recipe, {
+                geometry: this.recipe.secondaryGeometry,
+                radius: 24,
+                segments: 28,
+                alpha: 0.17,
+                phase: -phase,
+                style: this.recipe.secondaryTraceStyle,
+                fragmentation: this.recipe.fragmentation * 0.35
+            });
+        } else if (this.recipe.family === 'burst') this.drawBurst(context, safeTime);
         else if (this.recipe.family === 'barrier') this.drawBarrier(context, safeTime);
         else this.drawAura(context, safeTime);
 
@@ -1359,7 +1390,8 @@ export const renderEffectFrames = async ({ recipe, size = 160, frameCount = 32 }
         canvas.width = size;
         canvas.height = size;
         const context = canvas.getContext('2d');
-        effect.draw(context, effect.duration * index / Math.max(1, frameCount - 1));
+        const divisor = recipe.looping === false ? Math.max(1, frameCount - 1) : frameCount;
+        effect.draw(context, effect.duration * index / divisor);
         frames.push(canvas);
         if (index % 4 === 3) await new Promise((resolve) => setTimeout(resolve, 0));
     }
