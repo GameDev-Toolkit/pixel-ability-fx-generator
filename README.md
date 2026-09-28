@@ -7,11 +7,11 @@
 </p>
 
 <p align="center">
-  <a href="https://gamedev-toolkit.github.io/pixel-ability-fx-forge/"><strong>Launch the forge</strong></a>
+  <a href="https://gamingtoolset.github.io/pixel-ability-fx-forge/"><strong>Launch the forge</strong></a>
   ·
   <a href="https://announcerua.itch.io/pixel-ability-fx-forge">Itch.io page</a>
   ·
-  <a href="https://gamedev-toolkit.github.io/pixel-ability-fx-forge/website/">Project page</a>
+  <a href="https://gamingtoolset.github.io/pixel-ability-fx-forge/website/">Project page</a>
   ·
   <a href="#quick-start">Run locally</a>
 </p>
@@ -22,8 +22,8 @@
   <img alt="HTML5" src="https://img.shields.io/badge/HTML5-Canvas-E34F26?style=for-the-badge&amp;logo=html5&amp;logoColor=white">
   <img alt="CSS3" src="https://img.shields.io/badge/CSS3-Pixel%20UI-1572B6?style=for-the-badge&amp;logo=css3&amp;logoColor=white">
   <img alt="No build step" src="https://img.shields.io/badge/build-none-7AFFB3?style=for-the-badge">
-  <a href="https://github.com/GameDev-Toolkit/pixel-ability-fx-forge/stargazers">
-    <img alt="GitHub stars" src="https://img.shields.io/github/stars/GameDev-Toolkit/pixel-ability-fx-forge?style=for-the-badge&amp;logo=github&amp;color=EF8DFF">
+  <a href="https://github.com/GamingToolset/pixel-ability-fx-forge/stargazers">
+    <img alt="GitHub stars" src="https://img.shields.io/github/stars/GamingToolset/pixel-ability-fx-forge?style=for-the-badge&amp;logo=github&amp;color=EF8DFF">
 </p>
 
 ## Overview
@@ -71,7 +71,7 @@ Everything is rendered locally with the Canvas 2D API. There is no account, back
 ### Run locally
 
 ```bash
-git clone https://github.com/GameDev-Toolkit/pixel-ability-fx-forge.git
+git clone https://github.com/GamingToolset/pixel-ability-fx-forge.git
 cd pixel-ability-fx-forge
 python -m http.server 8000
 ```
