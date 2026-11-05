@@ -15,7 +15,7 @@ const hashString = (value) => {
 const positiveModulo = (value, divisor) => ((value % divisor) + divisor) % divisor;
 
 const colorToRgb = (color) => {
-    const normalized = color.replace('#', '').trim();
+    const normalized = String(color ?? '').replace('#', '').trim();
     const value = normalized.length === 3
         ? normalized.split('').map((character) => character + character).join('')
         : normalized;
@@ -26,12 +26,25 @@ const colorToRgb = (color) => {
     };
 };
 
+// Core geometry shades the same few palette colors thousands of times per frame.
+// Caching the derived CSS string removes the repeated parse/format work.
+const SHADE_CACHE_LIMIT = 2048;
+const shadeCache = new Map();
+
 const shadeColor = (color, amount) => {
+    const key = `${String(color ?? '')}|${amount}`;
+    const cached = shadeCache.get(key);
+    if (cached !== undefined) return cached;
+
     const source = colorToRgb(color);
     const target = amount < 0 ? 0 : 255;
     const strength = Math.abs(amount);
     const channel = (value) => Math.round(value + (target - value) * strength);
-    return `rgb(${channel(source.r)}, ${channel(source.g)}, ${channel(source.b)})`;
+    const result = `rgb(${channel(source.r)}, ${channel(source.g)}, ${channel(source.b)})`;
+
+    if (shadeCache.size >= SHADE_CACHE_LIMIT) shadeCache.clear();
+    shadeCache.set(key, result);
+    return result;
 };
 
 const drawPixelCircle = (context, centerX, centerY, radius, color) => {
@@ -180,32 +193,47 @@ export const drawLoopPhase = (context, model, phase) => {
     drawEffectCore(context, model, normalizedPhase);
     context.globalCompositeOperation = model.blendMode;
 
-    for (const template of model.particles) {
-        const agePhase = positiveModulo(normalizedPhase - template.birthPhase, 1);
-        const age = agePhase * model.duration;
-        const particle = new Particle({
-            ...template.options,
-            random: createSeededRandom(template.simulationSeed)
-        });
-        advanceParticle(particle, age);
-        particle.draw(context);
+    // One particle instance and one seeded generator are sufficient: every
+    // template is reset to its initial state before being advanced to its age.
+    if (model.particles.length > 0) {
+        const random = createSeededRandom(model.particles[0].simulationSeed);
+        const particle = new Particle({ ...model.particles[0].options, random });
+        for (const template of model.particles) {
+            const agePhase = positiveModulo(normalizedPhase - template.birthPhase, 1);
+            const age = agePhase * model.duration;
+            random.reseed(template.simulationSeed);
+            particle.reset({ ...template.options, random });
+            advanceParticle(particle, age);
+            particle.draw(context);
+        }
     }
 
     context.globalAlpha = 1;
     context.globalCompositeOperation = 'source-over';
 };
 
+// Bound the render request before allocating a frame sequence; these values can
+// come from a preview canvas or from external callers of the loop renderer.
+const bounded = (value, fallback, minimum, maximum) => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? Math.min(maximum, Math.max(minimum, numeric)) : fallback;
+};
+
 export const renderSeamlessLoopFrames = async ({ config, width, height, frameCount }) => {
-    const bounds = { width, height };
+    const bounds = {
+        width: Math.trunc(bounded(width, 160, 16, 512)),
+        height: Math.trunc(bounded(height, 160, 16, 512))
+    };
+    const totalFrames = Math.trunc(bounded(frameCount, 32, 1, 120));
     const model = createLoopModel(config, bounds);
     const frames = [];
 
-    for (let index = 0; index < frameCount; index += 1) {
+    for (let index = 0; index < totalFrames; index += 1) {
         const frameCanvas = document.createElement('canvas');
-        frameCanvas.width = width;
-        frameCanvas.height = height;
+        frameCanvas.width = bounds.width;
+        frameCanvas.height = bounds.height;
         const context = frameCanvas.getContext('2d');
-        drawLoopPhase(context, model, index / frameCount);
+        drawLoopPhase(context, model, index / totalFrames);
         frames.push(frameCanvas);
 
         if (index % 2 === 1) await new Promise((resolve) => setTimeout(resolve, 0));

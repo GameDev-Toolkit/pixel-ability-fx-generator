@@ -172,7 +172,8 @@ pixel-ability-fx-forge/
 ├── js/
 │   ├── AbilityEffect.js      # Recipe generator and Canvas 2D renderer
 │   ├── main.js               # UI state, playback, and exporters
-│   └── gif.worker.js         # Local gif.js encoding worker
+│   ├── gif.worker.js         # Local gif.js encoding worker
+│   └── vendor/               # Version-pinned, same-origin exporter libraries
 ├── tests/
 │   └── effect-harness.html   # Browser-based deterministic render checks
 ├── website/
@@ -183,14 +184,14 @@ pixel-ability-fx-forge/
 
 ## Dependencies
 
-The application has no package-manager dependencies and no compile step. Two browser libraries are loaded from cdnjs by `index.html`:
+The application has no package-manager dependencies and no compile step. Two version-pinned browser libraries are vendored under `js/vendor/` and loaded from the same origin by `index.html`:
 
 | Library | Version | Purpose |
 | --- | --- | --- |
 | [JSZip](https://stuk.github.io/jszip/) | 3.10.1 | Packages PNG frames and `recipe.json` into a ZIP archive |
 | [gif.js](https://jnordberg.github.io/gif.js/) | 0.2.0 | Encodes exported frames as an animated GIF |
 
-The live preview and sprite-atlas export are implemented with browser APIs. ZIP and GIF export require the CDN scripts to load; `js/gif.worker.js` is included locally for GIF encoding workers.
+The live preview and sprite-atlas export are implemented with browser APIs. ZIP and GIF export work offline: `js/vendor/jszip.min.js`, `js/vendor/gif.js` and the matching `js/gif.worker.js` are all served locally, so no third-party script is executed at runtime.
 
 ## Verification
 
@@ -231,7 +232,7 @@ The root URL serves the forge. The optional promotional landing page remains ava
 - The forge is designed for desktop viewports; its main workspace has a minimum width of 780 pixels.
 - Pixel edges rely on Canvas 2D rendering with `imageSmoothingEnabled = false`.
 - Reduced-motion preferences are respected by the animated project landing page.
-- If an exporter reports that it is still loading, check that cdnjs is reachable and reload the page.
+- If an exporter reports that it is still loading, verify that `js/vendor/` was deployed together with the application and reload the page.
 
 ## Contributing
 
