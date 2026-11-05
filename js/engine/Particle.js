@@ -3,22 +3,36 @@ const BOUNDARY_FADE_PX = 12;
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const lerp = (a, b, t) => a + (b - a) * t;
 
-const hexToRgb = (hex) => {
-    if (hex.startsWith('rgb')) {
-        const channels = hex.match(/[\d.]+/g)?.map(Number) || [255, 255, 255];
-        return { r: channels[0], g: channels[1], b: channels[2] };
+// Mixed colors are rebuilt for every particle on every frame, but the underlying
+// palette strings repeat. A bounded cache removes repeated regex/parse work while
+// keeping memory usage predictable.
+const COLOR_CACHE_LIMIT = 2048;
+const colorCache = new Map();
+
+const hexToRgb = (color) => {
+    const key = String(color);
+    const cached = colorCache.get(key);
+    if (cached) return cached;
+
+    let rgb;
+    if (key.startsWith('rgb')) {
+        const channels = key.match(/[\d.]+/g)?.map(Number) || [255, 255, 255];
+        rgb = { r: channels[0], g: channels[1], b: channels[2] };
+    } else {
+        const normalized = key.replace('#', '').trim();
+        const value = normalized.length === 3
+            ? normalized.split('').map((char) => char + char).join('')
+            : normalized;
+        rgb = {
+            r: parseInt(value.slice(0, 2), 16),
+            g: parseInt(value.slice(2, 4), 16),
+            b: parseInt(value.slice(4, 6), 16)
+        };
     }
 
-    const normalized = hex.replace('#', '').trim();
-    const value = normalized.length === 3
-        ? normalized.split('').map((char) => char + char).join('')
-        : normalized;
-
-    return {
-        r: parseInt(value.slice(0, 2), 16),
-        g: parseInt(value.slice(2, 4), 16),
-        b: parseInt(value.slice(4, 6), 16)
-    };
+    if (colorCache.size >= COLOR_CACHE_LIMIT) colorCache.clear();
+    colorCache.set(key, rgb);
+    return rgb;
 };
 
 const shadeColor = (color, amount) => {
@@ -134,7 +148,13 @@ const drawShape = (context, x, y, size, shape) => {
 };
 
 export default class Particle {
-    constructor({
+    constructor(options) {
+        this.reset(options);
+    }
+
+    // Reusing one instance avoids a per-particle allocation when a loop frame
+    // re-simulates hundreds of templates from their initial state.
+    reset({
         x,
         y,
         vx,
@@ -186,6 +206,7 @@ export default class Particle {
         this.random = random || Math.random;
         this.detailSeed = detailSeed || 0;
         this.alive = true;
+        return this;
     }
 
     update(deltaTime) {
@@ -205,7 +226,9 @@ export default class Particle {
         this.vx += (this.random() - 0.5) * this.turbulence * deltaTime * 60;
         this.vy += (this.random() - 0.5) * this.turbulence * deltaTime * 60;
 
-        const dragFactor = Math.pow(this.drag, frameScale);
+        // The loop renderer advances in fixed 1/60 s steps, where pow(drag, 1)
+        // is exactly drag. Only the final fractional step needs Math.pow.
+        const dragFactor = frameScale === 1 ? this.drag : Math.pow(this.drag, frameScale);
         this.vx *= dragFactor;
         this.vy *= dragFactor;
 

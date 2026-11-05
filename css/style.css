@@ -334,6 +334,21 @@ h1 {
 .button.ghost { background: transparent; }
 .button.compact { min-height: 34px; }
 
+/* Exporters are disabled while an export owns the encoder workers. */
+.button:disabled,
+.button:disabled:hover,
+.button:disabled:focus-visible,
+.button.primary:disabled,
+.button.primary:disabled:hover {
+    background: var(--surface);
+    border-color: var(--line-bright);
+    color: var(--quiet);
+    cursor: progress;
+    opacity: 0.55;
+    outline: none;
+    transform: none;
+}
+
 .button-pair {
     display: grid;
     gap: 8px;

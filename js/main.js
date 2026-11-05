@@ -11,8 +11,8 @@ import {
     createEffectRecipe,
     randomSeed,
     renderEffectFrames
-} from './AbilityEffect.js?v=12';
-import { LOOP_MOTIFS, LOOP_MOTIF_GROUPS } from './engine/LoopArt.js?v=2';
+} from './AbilityEffect.js?v=13';
+import { LOOP_MOTIFS, LOOP_MOTIF_GROUPS } from './engine/LoopArt.js?v=3';
 
 const GIF_WORKER_URL = new URL('./gif.worker.js', import.meta.url).href;
 const GIF_TRANSPARENT_COLOR = 0x010203;
@@ -60,6 +60,7 @@ const atlasPreviewShell = document.querySelector('#atlasPreviewShell');
 const notice = document.querySelector('#notice');
 const particleShapePicker = document.querySelector('#particleShapePicker');
 const particleShapeValue = document.querySelector('#particleShapeValue');
+const exportButtons = [...document.querySelectorAll('#exportAtlasBtn, #exportFramesBtn, #exportGifBtn')];
 
 const allGeometries = [...new Set(Object.values(FORMATIONS)
     .flatMap((family) => Object.values(family))
@@ -96,6 +97,15 @@ let frozenTime = 0;
 let playing = true;
 let noticeTimer;
 let seedInputTimer;
+let exportInProgress = false;
+let atlasPreviewUrl;
+let lastRenderedTime = Number.NaN;
+let lastProgressStep = -1;
+let lastStageText = '';
+
+// Resolving computed styles on every icon repaint forces a style recalculation.
+// The value is cached here and refreshed whenever the recipe palette changes.
+let shapeIconColor = getComputedStyle(document.documentElement).getPropertyValue('--effect-accent').trim() || '#ef8dff';
 
 const prettyLabel = (value) => String(value)
     .replace(/([a-z])([A-Z])/g, '$1 $2')
@@ -104,7 +114,7 @@ const prettyLabel = (value) => String(value)
 
 const paintShapeIcon = (canvas, shape) => {
     const icon = canvas.getContext('2d');
-    const color = getComputedStyle(document.documentElement).getPropertyValue('--effect-accent').trim() || '#ef8dff';
+    const color = shapeIconColor;
     icon.clearRect(0, 0, canvas.width, canvas.height);
     icon.fillStyle = color;
     const cells = {
@@ -254,12 +264,12 @@ const setNotice = (message, tone = 'default') => {
     noticeTimer = window.setTimeout(() => notice.classList.remove('visible'), 2800);
 };
 
-const sanitizeFilename = (value) => value
+const sanitizeFilename = (value) => String(value ?? '')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '') || 'ability-fx';
 
-const exportName = () => `${sanitizeFilename(baseRecipe.name)}-${baseRecipe.motif}`;
+const exportName = () => `${sanitizeFilename(baseRecipe.name)}-${sanitizeFilename(baseRecipe.motif)}`;
 
 const timestamp = () => new Date().toISOString().replace(/[:.]/g, '-');
 
@@ -279,29 +289,59 @@ const canvasToBlob = (sourceCanvas) => new Promise((resolve, reject) => {
     }, 'image/png');
 });
 
+const releaseAtlasPreview = () => {
+    if (!atlasPreviewUrl) return;
+    URL.revokeObjectURL(atlasPreviewUrl);
+    atlasPreviewUrl = null;
+};
+
+// Export dimensions are select values, but they still bound the amount of canvas
+// memory a single export can allocate. Reject non-finite or out-of-range values.
+const boundedSetting = (value, fallback, minimum, maximum) => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? Math.min(maximum, Math.max(minimum, numeric)) : fallback;
+};
+
 const currentExportOptions = () => ({
-    size: Number(canvasSizeSelect.value),
-    frameCount: Number(frameCountSelect.value),
-    fps: Number(fpsSelect.value)
+    size: Math.round(boundedSetting(canvasSizeSelect.value, 160, 128, 256)),
+    frameCount: Math.round(boundedSetting(frameCountSelect.value, 32, 24, 48)),
+    fps: Math.round(boundedSetting(fpsSelect.value, 16, 12, 24))
 });
 
+const beginExport = () => {
+    if (exportInProgress) {
+        setNotice('An export is already in progress.', 'default');
+        return false;
+    }
+    exportInProgress = true;
+    exportButtons.forEach((button) => { button.disabled = true; });
+    return true;
+};
+
+const endExport = () => {
+    exportInProgress = false;
+    exportButtons.forEach((button) => { button.disabled = false; });
+};
+
 const updateRecipeReadout = () => {
-    recipeFamily.textContent = EFFECT_FAMILIES[baseRecipe.family].shortLabel;
-    recipeElement.textContent = ELEMENTS[baseRecipe.element].label;
+    recipeFamily.textContent = EFFECT_FAMILIES[baseRecipe.family]?.shortLabel ?? prettyLabel(baseRecipe.family);
+    recipeElement.textContent = ELEMENTS[baseRecipe.element]?.label ?? prettyLabel(baseRecipe.element);
     durationStat.textContent = `${activeEffect.duration.toFixed(1)}s`;
     particleStat.textContent = activeEffect.particleCount;
     layerStat.textContent = baseRecipe.motif === 'orbit' || baseRecipe.motif === 'waves' ? 3 : 2;
     symmetryStat.textContent = `${baseRecipe.symmetry}-way`;
     paletteSwatches.replaceChildren();
-    baseRecipe.palette.forEach((color, index) => {
+    const palette = Array.isArray(baseRecipe.palette) ? baseRecipe.palette : [];
+    palette.forEach((color, index) => {
         const swatch = document.createElement('span');
         swatch.className = 'palette-swatch';
         swatch.style.background = color;
         swatch.title = `${index + 1}: ${color}`;
         paletteSwatches.append(swatch);
     });
-    document.documentElement.style.setProperty('--effect-accent', baseRecipe.palette[1]);
-    document.documentElement.style.setProperty('--effect-deep', baseRecipe.palette[3]);
+    shapeIconColor = palette[1] || '#ef8dff';
+    document.documentElement.style.setProperty('--effect-accent', shapeIconColor);
+    document.documentElement.style.setProperty('--effect-deep', palette[3] || '#6422b8');
     seedInput.value = baseRecipe.seed;
 };
 
@@ -309,6 +349,9 @@ const resetPlayback = () => {
     startedAt = performance.now();
     frozenTime = 0;
     playing = true;
+    lastRenderedTime = Number.NaN;
+    lastProgressStep = -1;
+    lastStageText = '';
     pauseButton.textContent = 'Pause';
     pauseButton.setAttribute('aria-pressed', 'false');
 };
@@ -320,6 +363,11 @@ const applyRecipe = (recipe, { showNotice = false } = {}) => {
     syncControls();
     resetPlayback();
     atlasPreviewShell.hidden = true;
+    atlasPreview.replaceChildren();
+    releaseAtlasPreview();
+    lastRenderedTime = Number.NaN;
+    lastProgressStep = -1;
+    lastStageText = '';
     if (showNotice) setNotice('Effect updated', 'success');
 };
 
@@ -327,8 +375,18 @@ const rebuildRecipe = (patch, { showNotice = true } = {}) => {
     applyRecipe({ ...baseRecipe, ...patch }, { showNotice });
 };
 
+// Seeds are exposed as a numeric input, so coerce them to the documented uint32
+// range instead of letting NaN, Infinity or fractions reach the generator.
+const MAX_SEED = 0xffffffff;
+const normalizeSeed = (value) => {
+    const raw = String(value ?? '').trim();
+    const numeric = Number(raw);
+    if (!raw || !Number.isFinite(numeric)) return randomSeed();
+    return Math.min(MAX_SEED, Math.max(1, Math.trunc(numeric)));
+};
+
 const generateFromControls = ({ freshSeed = false } = {}) => {
-    const seed = freshSeed ? randomSeed() : Number(seedInput.value) || randomSeed();
+    const seed = freshSeed ? randomSeed() : normalizeSeed(seedInput.value);
     const recipe = createEffectRecipe({
         family: controls.family.value,
         element: controls.element.value,
@@ -341,9 +399,17 @@ const generateFromControls = ({ freshSeed = false } = {}) => {
 
 const playbackTime = (now) => playing ? (now - startedAt) / 1000 : frozenTime;
 
-const getStage = () => LOOP_MOTIFS[baseRecipe.motif] || 'Seamless loop';
+const getStage = () => Object.hasOwn(LOOP_MOTIFS, baseRecipe.motif)
+    ? LOOP_MOTIFS[baseRecipe.motif]
+    : 'Seamless loop';
 
 const animationLoop = (now) => {
+    requestAnimationFrame(animationLoop);
+
+    // Background tabs and paused playback do not change the frame; skip the full
+    // canvas redraw and the associated DOM writes until the time actually moves.
+    if (document.hidden) return;
+
     let time = playbackTime(now);
     if (playing && time >= activeEffect.duration) {
         const elapsedCycles = Math.floor(time / activeEffect.duration);
@@ -351,11 +417,21 @@ const animationLoop = (now) => {
         time %= activeEffect.duration;
     }
 
+    if (time === lastRenderedTime) return;
+    lastRenderedTime = time;
+
     activeEffect.draw(context, time);
     const progress = Math.max(0, Math.min(1, time / activeEffect.duration));
-    frameProgress.style.width = `${progress * 100}%`;
-    stageLabel.textContent = `${getStage()} · ${time.toFixed(1)}s`;
-    requestAnimationFrame(animationLoop);
+    const progressStep = Math.round(progress * 200);
+    if (progressStep !== lastProgressStep) {
+        frameProgress.style.width = `${progressStep / 2}%`;
+        lastProgressStep = progressStep;
+    }
+    const stageText = `${getStage()} · ${time.toFixed(1)}s`;
+    if (stageText !== lastStageText) {
+        stageLabel.textContent = stageText;
+        lastStageText = stageText;
+    }
 };
 
 const createAtlas = (frames, size) => {
@@ -394,21 +470,37 @@ const captureFrames = async () => {
     return { ...result, ...settings };
 };
 
+// A download must keep its object URL alive until the browser has consumed it;
+// one second is too aggressive for large archives on slower storage.
+const releaseAfterDownload = (url) => {
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+};
+
 const exportAtlas = async () => {
+    if (!beginExport()) return;
     try {
         const { frames, size } = await captureFrames();
         const atlas = createAtlas(frames, size);
-        const dataUrl = atlas.toDataURL('image/png');
+        const blob = await canvasToBlob(atlas);
+        releaseAtlasPreview();
+        // Separate URLs prevent a recipe change (which releases the preview) from
+        // invalidating the object URL the browser is still streaming to disk.
+        const previewUrl = URL.createObjectURL(blob);
+        const downloadBlobUrl = URL.createObjectURL(blob);
+        atlasPreviewUrl = previewUrl;
         const image = new Image();
-        image.src = dataUrl;
+        image.src = previewUrl;
         image.alt = `${baseRecipe.name} sprite atlas`;
         atlasPreview.replaceChildren(image);
         atlasPreviewShell.hidden = false;
-        downloadUrl(dataUrl, `atlas-${exportName()}-${timestamp()}.png`);
+        downloadUrl(downloadBlobUrl, `atlas-${exportName()}-${timestamp()}.png`);
+        releaseAfterDownload(downloadBlobUrl);
         setNotice('Sprite atlas exported', 'success');
     } catch (error) {
         console.error(error);
         setNotice(error.message, 'danger');
+    } finally {
+        endExport();
     }
 };
 
@@ -417,21 +509,25 @@ const exportFramesZip = async () => {
         setNotice('ZIP exporter is still loading.', 'danger');
         return;
     }
+    if (!beginExport()) return;
     try {
         const { frames } = await captureFrames();
         const zip = new JSZip();
-        for (let index = 0; index < frames.length; index += 1) {
-            zip.file(`frame-${String(index).padStart(3, '0')}.png`, await canvasToBlob(frames[index]));
-        }
+        const blobs = await Promise.all(frames.map((frame) => canvasToBlob(frame)));
+        blobs.forEach((blob, index) => {
+            zip.file(`frame-${String(index).padStart(3, '0')}.png`, blob);
+        });
         zip.file('recipe.json', JSON.stringify(baseRecipe, null, 2));
         const blob = await zip.generateAsync({ type: 'blob' });
         const url = URL.createObjectURL(blob);
         downloadUrl(url, `frames-${exportName()}-${timestamp()}.zip`);
-        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+        releaseAfterDownload(url);
         setNotice('PNG sequence exported', 'success');
     } catch (error) {
         console.error(error);
         setNotice(error.message, 'danger');
+    } finally {
+        endExport();
     }
 };
 
@@ -440,10 +536,19 @@ const exportGif = async () => {
         setNotice('GIF exporter is still loading.', 'danger');
         return;
     }
+    if (!beginExport()) return;
+
+    let gif;
+    let watchdog;
+    const finish = () => {
+        window.clearTimeout(watchdog);
+        endExport();
+    };
+
     try {
         const { frames, fps } = await captureFrames();
         setNotice('Encoding transparent GIF…');
-        const gif = new GIF({
+        gif = new GIF({
             workers: 2,
             quality: 10,
             repeat: 0,
@@ -457,16 +562,29 @@ const exportGif = async () => {
             });
         });
         gif.on('finished', (blob) => {
-            const url = URL.createObjectURL(blob);
-            downloadUrl(url, `loop-${exportName()}-${timestamp()}.gif`);
-            window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-            setNotice('Transparent GIF exported', 'success');
+            try {
+                const url = URL.createObjectURL(blob);
+                downloadUrl(url, `loop-${exportName()}-${timestamp()}.gif`);
+                releaseAfterDownload(url);
+                setNotice('Transparent GIF exported', 'success');
+            } finally {
+                finish();
+            }
         });
-        gif.on('abort', () => setNotice('GIF export was cancelled.', 'danger'));
+        gif.on('abort', () => {
+            setNotice('GIF export was cancelled.', 'danger');
+            finish();
+        });
+        // Bounds the export lock if a worker never starts or never reports back.
+        watchdog = window.setTimeout(() => {
+            setNotice('GIF export timed out.', 'danger');
+            gif.abort();
+        }, 120_000);
         gif.render();
     } catch (error) {
         console.error(error);
         setNotice(error.message, 'danger');
+        finish();
     }
 };
 
@@ -556,6 +674,7 @@ pauseButton.addEventListener('click', () => {
     if (playing) {
         frozenTime = Math.min((performance.now() - startedAt) / 1000, activeEffect.duration);
         playing = false;
+        lastRenderedTime = Number.NaN;
         pauseButton.textContent = 'Play';
         pauseButton.setAttribute('aria-pressed', 'true');
     } else {
@@ -569,6 +688,7 @@ pauseButton.addEventListener('click', () => {
 document.querySelector('#exportAtlasBtn').addEventListener('click', exportAtlas);
 document.querySelector('#exportFramesBtn').addEventListener('click', exportFramesZip);
 document.querySelector('#exportGifBtn').addEventListener('click', exportGif);
+window.addEventListener('pagehide', releaseAtlasPreview, { once: true });
 
 const initialRecipe = createEffectRecipe({ family: 'burst', element: 'arcane', power: 'standard', seed: 734211 });
 applyRecipe({

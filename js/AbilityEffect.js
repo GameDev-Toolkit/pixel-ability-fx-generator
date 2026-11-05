@@ -1,4 +1,4 @@
-import { LOOP_MOTIFS, createLoopArtModel, drawLoopArt } from './engine/LoopArt.js?v=2';
+import { LOOP_MOTIFS, createLoopArtModel, drawLoopArt } from './engine/LoopArt.js?v=3';
 
 const TAU = Math.PI * 2;
 const BASE_SIZE = 160;
@@ -248,11 +248,14 @@ export const createEffectRecipe = ({
     power = 'standard',
     seed = randomSeed()
 } = {}) => {
-    const normalizedSeed = Number(seed) >>> 0 || 1;
+    // Only own metadata keys are accepted: inherited Object.prototype members
+    // must not be treated as valid families, elements or power levels.
+    const numericSeed = Number(seed);
+    const normalizedSeed = Number.isFinite(numericSeed) ? (Math.trunc(numericSeed) >>> 0) || 1 : 1;
     const random = createRandom(normalizedSeed);
-    const familyKey = EFFECT_FAMILIES[family] ? family : choose(random, FAMILY_KEYS);
-    const elementKey = ELEMENTS[element] ? element : choose(random, ELEMENT_KEYS);
-    const powerKey = POWER_LEVELS[power] ? power : 'standard';
+    const familyKey = Object.hasOwn(EFFECT_FAMILIES, family) ? family : choose(random, FAMILY_KEYS);
+    const elementKey = Object.hasOwn(ELEMENTS, element) ? element : choose(random, ELEMENT_KEYS);
+    const powerKey = Object.hasOwn(POWER_LEVELS, power) ? power : 'standard';
     const familyData = EFFECT_FAMILIES[familyKey];
     const elementData = ELEMENTS[elementKey];
     const powerData = POWER_LEVELS[powerKey];
@@ -1373,24 +1376,32 @@ export class AbilityEffect {
     }
 }
 
+// Export parameters can originate from external callers, so cap the canvas
+// dimensions and frame count before allocating a potentially large sequence.
+const boundedDimension = (value) => Math.round(clamp(Number(value) || 160, 16, 512));
+const boundedFrameCount = (value) => Math.round(clamp(Number(value) || 32, 1, 120));
+
 export const renderEffectFrame = (recipe, time, size = 160) => {
+    const dimension = boundedDimension(size);
     const canvas = document.createElement('canvas');
-    canvas.width = size;
-    canvas.height = size;
+    canvas.width = dimension;
+    canvas.height = dimension;
     const context = canvas.getContext('2d');
     new AbilityEffect(recipe).draw(context, time);
     return canvas;
 };
 
 export const renderEffectFrames = async ({ recipe, size = 160, frameCount = 32 }) => {
+    const dimension = boundedDimension(size);
+    const totalFrames = boundedFrameCount(frameCount);
     const effect = new AbilityEffect(recipe);
     const frames = [];
-    for (let index = 0; index < frameCount; index += 1) {
+    for (let index = 0; index < totalFrames; index += 1) {
         const canvas = document.createElement('canvas');
-        canvas.width = size;
-        canvas.height = size;
+        canvas.width = dimension;
+        canvas.height = dimension;
         const context = canvas.getContext('2d');
-        const divisor = recipe.looping === false ? Math.max(1, frameCount - 1) : frameCount;
+        const divisor = recipe.looping === false ? Math.max(1, totalFrames - 1) : totalFrames;
         effect.draw(context, effect.duration * index / divisor);
         frames.push(canvas);
         if (index % 4 === 3) await new Promise((resolve) => setTimeout(resolve, 0));

@@ -22,6 +22,25 @@ export default class Renderer {
         this._previewFrames = null;
         this._previewDirty = true;
         this._rebuilding = false;
+        this._previewGeneration = 0;
+        this._theme = null;
+    }
+
+    // getComputedStyle forces a style recalculation; the theme is static for a
+    // mounted canvas, so resolve these custom properties once and cache them.
+    readTheme() {
+        if (!this._theme) {
+            const styles = getComputedStyle(this.canvas);
+            this._theme = {
+                accent: styles.getPropertyValue('--accent').trim() || '#32d7ff',
+                muted: styles.getPropertyValue('--text-muted').trim() || '#9aa3b2'
+            };
+        }
+        return this._theme;
+    }
+
+    refreshTheme() {
+        this._theme = null;
     }
 
     start() {
@@ -80,7 +99,7 @@ export default class Renderer {
         const context = this.context;
         const w = this.canvas.width;
         const h = this.canvas.height;
-        const muted = getComputedStyle(this.canvas).getPropertyValue('--text-muted').trim() || '#9aa3b2';
+        const muted = this.readTheme().muted;
 
         context.save();
         context.fillStyle = muted;
@@ -92,11 +111,11 @@ export default class Renderer {
     }
 
     async _rebuildPreviewFrames() {
-        this._rebuilding = true;
-        this._previewDirty = false;
-
+        const generation = this._previewGeneration;
         const { frameCount } = this;
         const size = this.canvas.width;
+        this._rebuilding = true;
+        this._previewDirty = false;
 
         try {
             const { frames } = await renderSeamlessLoopFrames({
@@ -106,9 +125,20 @@ export default class Renderer {
                 frameCount
             });
 
+            // Discard results produced for configuration or dimensions that have
+            // since changed, and never let a rejected build escape as an
+            // unhandled promise rejection from the animation loop.
+            if (generation !== this._previewGeneration
+                || frameCount !== this.frameCount
+                || size !== this.canvas.width) return;
+
             this._previewFrames = frames.map((frameCanvas) => (
                 frameCanvas.getContext('2d').getImageData(0, 0, size, size)
             ));
+        } catch (error) {
+            console.error('Seamless loop preview could not be rebuilt.', error);
+            // A later configuration change marks the preview dirty again; retrying
+            // every frame here would spin on a permanently failing encoder.
         } finally {
             this._rebuilding = false;
         }
@@ -120,6 +150,7 @@ export default class Renderer {
 
     setEmitter(emitter) {
         this.emitter = emitter;
+        this.markPreviewDirty();
     }
 
     setShowTarget(value) {
@@ -143,14 +174,19 @@ export default class Renderer {
     }
 
     setFramePreviewMode(enabled, frameCount, frameDuration) {
+        const bounded = (value, fallback, minimum, maximum) => {
+            const numeric = Number(value);
+            return Number.isFinite(numeric) ? Math.min(maximum, Math.max(minimum, numeric)) : fallback;
+        };
         this.framePreviewMode = enabled;
-        if (frameCount !== undefined) this.frameCount = frameCount;
-        if (frameDuration !== undefined) this.frameDuration = frameDuration;
+        if (frameCount !== undefined) this.frameCount = Math.round(bounded(frameCount, 8, 1, 120));
+        if (frameDuration !== undefined) this.frameDuration = bounded(frameDuration, 1.25, 0.05, 30);
         this.markPreviewDirty();
     }
 
     markPreviewDirty() {
         this._previewDirty = true;
+        this._previewGeneration += 1;
     }
 
     exportPng(filename = `pixel-fx-${Date.now()}.png`) {
@@ -217,7 +253,7 @@ export default class Renderer {
         context.restore();
 
         if (this.showOriginDot) {
-            const accent = getComputedStyle(this.canvas).getPropertyValue('--accent').trim() || '#32d7ff';
+            const accent = this.readTheme().accent;
             const ox = Math.round(this.emitter.originX);
             const oy = Math.round(this.emitter.originY);
             context.fillStyle = accent;

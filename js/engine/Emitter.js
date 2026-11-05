@@ -6,13 +6,18 @@ const degToRad = (degrees) => degrees * Math.PI / 180;
 export const createSeededRandom = (seed = 0x9e3779b9) => {
     let state = seed >>> 0;
 
-    return () => {
+    const random = () => {
         state += 0x6d2b79f5;
         let value = state;
         value = Math.imul(value ^ value >>> 15, value | 1);
         value ^= value + Math.imul(value ^ value >>> 7, value | 61);
         return ((value ^ value >>> 14) >>> 0) / 4294967296;
     };
+
+    // Loop-frame rendering reuses a single generator across templates; reseeding
+    // keeps each particle's simulation deterministic without new closures.
+    random.reseed = (value) => { state = value >>> 0; };
+    return random;
 };
 
 export const defaultEmitterConfig = {
@@ -56,12 +61,29 @@ export const defaultEmitterConfig = {
     }
 };
 
-const cloneConfig = (config) => structuredClone(config);
+// Reject prototype-mutating keys so configuration objects can never pollute
+// Object.prototype, and clone only plain data without structuredClone's failure
+// on functions (callbacks such as `random` are shared by reference).
+const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
+const cloneConfig = (value) => {
+    if (Array.isArray(value)) return value.map(cloneConfig);
+    if (value && typeof value === 'object') {
+        const copy = {};
+        for (const key of Object.keys(value)) {
+            if (UNSAFE_KEYS.has(key)) continue;
+            copy[key] = cloneConfig(value[key]);
+        }
+        return copy;
+    }
+    return value;
+};
 
 const deepMerge = (base, override) => {
     const result = cloneConfig(base);
 
     for (const [key, value] of Object.entries(override || {})) {
+        if (UNSAFE_KEYS.has(key)) continue;
         const canMerge = value
             && typeof value === 'object'
             && !Array.isArray(value)
@@ -100,14 +122,15 @@ export default class Emitter {
             this.spawn(spawnCount);
         }
 
+        // Keep the reverse update order (it drives the shared RNG stream) while
+        // compacting dead particles in a single linear pass instead of splicing.
+        const survivors = [];
         for (let index = this.particles.length - 1; index >= 0; index -= 1) {
             const particle = this.particles[index];
             particle.update(deltaTime);
-
-            if (!particle.alive) {
-                this.particles.splice(index, 1);
-            }
+            if (particle.alive) survivors.push(particle);
         }
+        this.particles = survivors.reverse();
     }
 
     draw(context) {
@@ -126,8 +149,8 @@ export default class Emitter {
     }
 
     spawn(count) {
-        const available = this.config.emission.maxParticles - this.particles.length;
-        const amount = Math.max(0, Math.min(count, available));
+        const available = Math.max(0, this.config.emission.maxParticles - this.particles.length);
+        const amount = Math.max(0, Math.min(Math.floor(count) || 0, available));
 
         for (let index = 0; index < amount; index += 1) {
             this.particles.push(new Particle(this.createParticleOptions()));

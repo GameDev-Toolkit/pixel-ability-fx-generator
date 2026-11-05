@@ -39,7 +39,11 @@ export const LOOP_MOTIF_GROUPS = [
     } }
 ];
 
-export const LOOP_MOTIFS = Object.assign({}, ...LOOP_MOTIF_GROUPS.map((group) => group.motifs));
+// A null-prototype, frozen registry: recipe-supplied motif names can never
+// resolve to inherited Object.prototype members or mutate the lookup table.
+export const LOOP_MOTIFS = Object.freeze(
+    Object.assign(Object.create(null), ...LOOP_MOTIF_GROUPS.map((group) => group.motifs))
+);
 
 const randomFromSeed = (seed) => {
     let state = seed >>> 0;
@@ -52,12 +56,41 @@ const randomFromSeed = (seed) => {
     };
 };
 
+// Motif rendering emits thousands of single-pixel rectangles per frame. Assigning
+// fillStyle/globalAlpha each time reparses the color and forces a canvas state
+// change, so cache the last committed values per context and write only on change.
+const drawStates = new WeakMap();
+const NO_COLOR = Symbol('no-color');
+
+const stateFor = (context) => {
+    let state = drawStates.get(context);
+    if (!state) {
+        state = { color: NO_COLOR, alpha: Number.NaN };
+        drawStates.set(context, state);
+    }
+    return state;
+};
+
+const resetDrawState = (context) => {
+    const state = stateFor(context);
+    state.color = NO_COLOR;
+    state.alpha = Number.NaN;
+};
+
 const dot = (context, x, y, size, color, alpha = 1) => {
     const width = Math.max(1, Math.round(size));
     const px = clamp(Math.round(x - width / 2), 3, 156 - width);
     const py = clamp(Math.round(y - width / 2), 3, 156 - width);
-    context.globalAlpha = clamp(alpha, 0, 1);
-    context.fillStyle = color;
+    const state = stateFor(context);
+    const nextAlpha = clamp(alpha, 0, 1);
+    if (state.color !== color) {
+        context.fillStyle = color;
+        state.color = color;
+    }
+    if (state.alpha !== nextAlpha) {
+        context.globalAlpha = nextAlpha;
+        state.alpha = nextAlpha;
+    }
     context.fillRect(px, py, width, width);
 };
 
@@ -97,7 +130,10 @@ const curve = (context, count, pointAt, color, alpha, size, gaps = false) => {
 };
 
 const polar = (angle, radius) => ({ x: 80 + Math.cos(angle) * radius, y: 80 + Math.sin(angle) * radius });
-const colors = (recipe) => recipe.palette;
+const FALLBACK_PALETTE = Object.freeze(['#ffffff', '#ef8dff', '#a855f7', '#6422b8', '#20083d']);
+const colors = (recipe) => Array.isArray(recipe.palette) && recipe.palette.length
+    ? recipe.palette
+    : FALLBACK_PALETTE;
 const turns = (recipe) => (recipe.direction || 1) * (recipe.loopTurns || 1);
 const points = (recipe) => clamp(Math.round(recipe.symmetry || 6), 3, 12);
 const motifRadius = (recipe) => clamp((recipe.radius || 55) * (recipe.scale || 1) * 0.77, 31, 57);
@@ -885,7 +921,7 @@ const drawMeteorRain = (ctx, recipe, angle) => {
     }
 };
 
-const EXTRA_RENDERERS = {
+const EXTRA_RENDERERS = Object.freeze({
     starburst: drawStarburst, sunwheel: drawSunwheel, eclipse: drawEclipse,
     blackhole: drawBlackhole, comet: drawComet, nova: drawNova,
     pentagram: drawPentagram, hexagram: drawHexagram, runicCross: drawRunicCross,
@@ -900,7 +936,7 @@ const EXTRA_RENDERERS = {
     lissajous: drawLissajous, infinity: drawInfinity, hourglass: drawHourglass,
     glitch: drawGlitch, lattice: drawLattice, checker: drawChecker,
     sparks: drawSparks, chain: drawChain, meteorRain: drawMeteorRain
-};
+});
 
 const drawMotes = (context, model, angle) => {
     const { recipe, motes } = model;
@@ -925,15 +961,20 @@ export const createLoopArtModel = (recipe) => {
     const structured = ['sigil', 'prism', 'pentagram', 'hexagram', 'runicCross', 'clockwork',
         'tetrahedron', 'octahedron', 'crystalCage', 'shuriken', 'bladeWheel', 'tunnel',
         'hourglass', 'lattice', 'checker', 'glitch'];
-    const count = Math.round(clamp((structured.includes(recipe.motif) ? 24 : 36) * (recipe.density || 1), 20, 75));
+    const density = Number.isFinite(recipe.density) && recipe.density > 0 ? recipe.density : 1;
+    const count = Math.round(clamp((structured.includes(recipe.motif) ? 24 : 36) * density, 20, 75));
+    const palette = colors(recipe);
+    const shapes = Array.isArray(recipe.particleShapes) && recipe.particleShapes.length
+        ? recipe.particleShapes
+        : ['square'];
     const motes = Array.from({ length: count }, (_, index) => ({
         phase: random() * TAU,
         radius: 19 + random() * 43,
         wobble: 1 + random() * 5,
         speed: index % 3 === 0 ? -1 : 1,
         size: random() > 0.82 ? 2 : 1,
-        color: Math.floor(random() * Math.min(4, recipe.palette.length)),
-        shape: recipe.particleShapes?.[index % recipe.particleShapes.length] || 'square'
+        color: Math.floor(random() * Math.min(4, palette.length)),
+        shape: shapes[index % shapes.length] || 'square'
     }));
     return { recipe, motes };
 };
@@ -942,7 +983,12 @@ export const drawLoopArt = (context, model, time) => {
     const { recipe } = model;
     const phase = ((time / recipe.duration) % 1 + 1) % 1;
     const angle = phase * TAU;
-    const motif = LOOP_MOTIFS[recipe.motif] ? recipe.motif : 'mandala';
+    const motif = Object.hasOwn(LOOP_MOTIFS, recipe.motif) ? recipe.motif : 'mandala';
+
+    // Other renderers share this context and write canvas state directly, so the
+    // cached style must be invalidated once per frame before any dot is emitted.
+    resetDrawState(context);
+
     if (motif === 'mandala') drawMandala(context, recipe, angle);
     else if (motif === 'sigil') drawSigil(context, recipe, angle);
     else if (motif === 'orbit') drawOrbit(context, recipe, angle);
@@ -951,7 +997,10 @@ export const drawLoopArt = (context, model, time) => {
     else if (motif === 'lightning') drawLightning(context, recipe, angle);
     else if (motif === 'waves') drawWaves(context, recipe, angle);
     else if (motif === 'plasma') drawPlasma(context, recipe, angle);
-    else EXTRA_RENDERERS[motif](context, recipe, angle);
+    else {
+        const renderer = Object.hasOwn(EXTRA_RENDERERS, motif) ? EXTRA_RENDERERS[motif] : drawMandala;
+        renderer(context, recipe, angle);
+    }
     drawMotes(context, model, angle);
     context.globalAlpha = 1;
 };
